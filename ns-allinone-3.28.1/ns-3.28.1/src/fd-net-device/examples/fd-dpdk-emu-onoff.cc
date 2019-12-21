@@ -120,14 +120,14 @@ int main(int argc, char *argv[])
     std::string dataRate("950Mb/s");
     bool serverMode = false;
 
-    std::string deviceName("eno1");
-    std::string client("10.0.1.11");
-    std::string server("10.0.1.22");
+    std::string deviceName("0000:00:11.0");
+    std::string client("192.168.0.2");
+    std::string server("192.168.0.7");
     std::string netmask("255.255.255.0");
-    std::string macClient("00:00:00:00:00:01");
-    std::string macServer("00:00:00:00:00:02");
+    std::string macClient("08:00:27:59:7A:AD");
+    std::string macServer("f8:28:19:71:24:d1");
 
-    std::string transportProt = "Udp";
+    std::string transportProt = "Tcp";
     std::string socketType;
 
     bool dpdkMode = true;
