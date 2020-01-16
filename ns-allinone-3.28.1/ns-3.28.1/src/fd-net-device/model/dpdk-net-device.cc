@@ -206,6 +206,11 @@ DpdkNetDevice::StopDevice (void)
 
   rte_eth_dev_stop (m_portId);
   rte_eth_dev_close (m_portId);
+
+  // $$
+  m_waitingSlotThreadRun = false;
+  m_queueStopped.SetCondition (true);
+  m_queueStopped.Signal ();
 }
 
 void
@@ -289,7 +294,32 @@ void
 DpdkNetDevice::HandleTx ()
 {
   int queueId = 0;
-  rte_eth_tx_buffer_flush (m_portId, queueId, m_txBuffer);
+
+  // $$
+  uint16_t offset = 0;
+  int tx_queue_status = rte_eth_tx_descriptor_status(m_portId, queueId, offset);
+  if(tx_queue_status == 1) {
+    rte_eth_tx_buffer_flush (m_portId, queueId, m_txBuffer);
+  }
+  else {
+    m_queue->Stop();
+
+    m_queueStopped.SetCondition (true);
+    m_queueStopped.Signal ();
+  }
+}
+
+// $$
+void
+DpdkNetDevice::TxRequeueErrCallback (struct rte_mbuf **unsent, uint16_t count, void *userdata)
+{
+  struct rte_eth_dev_tx_buffer * txBuffer = (rte_eth_dev_tx_buffer *) userdata;
+  int queueId = 0;
+  int portId = 0;
+  for(int i=0; i<count; i++)
+  {
+    rte_eth_tx_buffer(portId, queueId, txBuffer, unsent[i]);
+  }
 }
 
 void
@@ -495,6 +525,10 @@ DpdkNetDevice::InitDpdk (int argc, char** argv)
   rte_eth_tx_buffer_init (m_txBuffer, MAX_PKT_BURST);
   rte_eth_tx_buffer_init (m_rxBuffer, MAX_PKT_BURST);
 
+  // $$
+  // Setting the callback function to re-queue the packets after burst from m_txBuffer
+  rte_eth_tx_buffer_set_err_callback(m_txBuffer, TxRequeueErrCallback, m_txBuffer);
+
   NS_LOG_INFO ("Start the device");
   ret = rte_eth_dev_start (m_portId);
   if (ret < 0)
@@ -514,6 +548,36 @@ DpdkNetDevice::InitDpdk (int argc, char** argv)
 
   NS_LOG_INFO ("Launching core threads");
   rte_eal_mp_remote_launch (LaunchCore, this, CALL_MASTER);
+
+  // $$
+  NS_LOG_INFO ("Starting Waiting Slot thread");
+  m_waitingSlotThreadRun = true;
+  m_queueStopped.SetCondition (false);
+  m_waitingSlotThread = Create<SystemThread> (MakeCallback (&DpdkNetDevice::WaitingSlot, this));
+  m_waitingSlotThread->Start ();
+}
+
+// $$
+// runs in a seperate thread
+void
+DpdkNetDevice::WaitingSlot()
+{
+  NS_LOG_FUNCTION (this);
+
+  while (m_waitingSlotThreadRun)
+  {
+    // If the queue is stopped
+    while(m_queueStopped.GetCondition ())
+    {
+      int offset = 0;
+      int queueId = 0;
+      int tx_queue_status = rte_eth_tx_descriptor_status(m_portId, queueId, offset);
+      if(tx_queue_status == 1) {
+        m_queueStopped.SetCondition (false);
+	m_queue->Wake();
+      }
+    }
+  }
 }
 
 void
@@ -589,12 +653,34 @@ DpdkNetDevice::Write(uint8_t *buffer, size_t length)
     return -1;
   }
 
+  // $$
+  if(m_queue->IsStopped ()){
+    // The device queue is stopped and we cannot write other packets
+    return -1;
+  }
+
   pkt[0] = (struct rte_mbuf *)RTE_PTR_SUB(buffer, 
                                 sizeof(struct rte_mbuf) + RTE_PKTMBUF_HEADROOM);
 
   pkt[0]->pkt_len = length;
   pkt[0]->data_len = length;
-  rte_eth_tx_buffer(m_portId, queueId, m_txBuffer, pkt[0]);
+
+  // $$
+  m_txBuffer->pkts[m_txBuffer->length++] = pkt[0];
+
+  if(m_txBuffer->length == m_txBuffer->size) {
+    uint16_t offset = 0;
+    int tx_queue_status = rte_eth_tx_descriptor_status(m_portId, queueId, offset);
+    if(tx_queue_status == 1) {
+      rte_eth_tx_buffer_flush(m_portId, queueId, m_txBuffer);
+    }
+    else {
+      m_queue->Stop();
+
+      m_queueStopped.SetCondition (true);
+      m_queueStopped.Signal ();
+    }
+  }
 
   if (m_txBuffer->length == 1) {
     // If this is a first packet in buffer, schedule a tx.

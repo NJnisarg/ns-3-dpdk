@@ -21,6 +21,8 @@ namespace ns3
 
   class Node;
   class DpdkNetDevice;
+  // $$
+  class SystemThread;
 
   class NetDeviceQueueInterface;
   class NetDeviceQueue;
@@ -181,6 +183,12 @@ namespace ns3
    */
     void HandleTx();
 
+    // $$
+    /**
+    * Error callback to Re-Queue the packets into the m_txBuffer after burst
+    */
+    static void TxRequeueErrCallback(struct rte_mbuf **unsent, uint16_t count, void *userdata);
+
     /**
    * Receive packets in burst from the nic to the rte_ring.
    */
@@ -256,6 +264,13 @@ namespace ns3
    */
     Ptr<DpdkNetDeviceReader> m_reader;
 
+    // $$
+    /**
+     *  \brief This function waits for the next available slot in the dpdk tx ring.
+     *  This function runs in a separate thread.
+     */
+    virtual void WaitingSlot ();
+
     static volatile bool m_forceQuit; //!< Condition variable for Dpdk to stop
     int m_ringSize;                   //!< Size of tx and rx ring
     struct rte_ring *m_txRing;        //!< Instance of rte ring for transmission
@@ -271,6 +286,11 @@ namespace ns3
 
     Ptr<NetDeviceQueueInterface> m_queueInterface; //!< NetDevice queue interface
     Ptr<NetDeviceQueue> m_queue;                   //!< NetDevice queue
+
+    Ptr<SystemThread> m_waitingSlotThread;
+    bool m_waitingSlotThreadRun;
+    SystemCondition m_queueStopped;
+    SystemMutex m_mutex;
   };
 
 } //
