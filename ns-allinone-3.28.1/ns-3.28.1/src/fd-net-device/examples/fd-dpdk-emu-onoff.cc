@@ -42,19 +42,19 @@ using namespace ns3;
 
 NS_LOG_COMPONENT_DEFINE("EmuFdNetDeviceSaturationExample");
 
-// static void
-// StatsSampling(Ptr<QueueDisc> qdisc, Ptr<NetDevice> device, double samplingPeriod)
-// {
-//     Simulator::Schedule(Seconds(samplingPeriod), &StatsSampling, qdisc, device, samplingPeriod);
-//     Ptr<NetmapNetDevice> d = DynamicCast<NetmapNetDevice>(device);
+static void
+StatsSampling(Ptr<QueueDisc> qdisc, Ptr<NetDevice> device, double samplingPeriod)
+{
 
-//     std::cout << qdisc->GetNPackets() << " packets in the traffic-control queue disc" << std::endl;
-//     if (d)
-//     {
-//         std::cout << d->GetBytesInNetmapTxRing() << " bytes inflight in the netmap tx ring" << std::endl;
-//     }
-// }
-
+    Simulator::Schedule(Seconds(samplingPeriod), &StatsSampling, qdisc, device, samplingPeriod);
+    Ptr<DpdkNetDevice> d = DynamicCast<DpdkNetDevice> (device);
+    if(d)
+    {
+        d->GetL2Stats();
+    }
+//    std::cout << qdisc->GetNPackets() << " packets in the traffic-control queue disc" << std::endl;
+//    std::cout << qdisc->GetStats() << std::endl;
+}
 std::ofstream fPing = std::ofstream ("ping.plotme", std::ios::out | std::ios::app);
 static void
 PingRtt(std::string context, Time rtt)
@@ -117,19 +117,20 @@ int main(int argc, char *argv[])
 {
     uint16_t sinkPort = 8000;
     uint32_t packetSize = 1400; // bytes
-    std::string dataRate("950Mb/s");
+    std::string dataRate("4950Mb/s");
     bool serverMode = false;
 
-    std::string deviceName("eno1");
-    std::string client("10.0.1.11");
-    std::string server("10.0.1.22");
+    std::string deviceName("0000:00:11.0");
+    std::string client("192.168.0.2");
+    std::string server("192.168.0.7");
     std::string netmask("255.255.255.0");
-    std::string macClient("00:00:00:00:00:01");
-    std::string macServer("00:00:00:00:00:02");
+    std::string macClient("08:00:27:59:7A:AD");
+    std::string macServer("f8:28:19:71:24:d1");
 
-    std::string transportProt = "Udp";
+    std::string transportProt = "Tcp";
     std::string socketType;
 
+    bool enable_qdisc = true;
     bool dpdkMode = true;
     bool ping = false;
     int dpdkTimeout = 2000;
@@ -149,6 +150,7 @@ int main(int argc, char *argv[])
     cmd.AddValue("dpdkMode", "Enable the netmap emulation mode", dpdkMode);
     cmd.AddValue("dpdkTimeout", "Tx Timeout to use in dpdkMode. (in microseconds)", dpdkTimeout);
     cmd.AddValue("ping", "Enable server ping client side", ping);
+    cmd.AddValue("enable_qdisc", "Enable the traffic Control module", enable_qdisc);
     cmd.Parse(argc, argv);
 
     Ipv4Address remoteIp;
@@ -229,12 +231,21 @@ int main(int argc, char *argv[])
     internetStackHelper.SetIpv4StackInstall(true);
     internetStackHelper.Install(node);
 
-    // TODO: Add sampling code.
-    // we enable the stats sampling client side only (we send traffic from client to server)
-    // if (!serverMode)
-    // {
-    //     Simulator::Schedule(Seconds(samplingPeriod), &StatsSampling, qdiscs.Get(0), device, samplingPeriod);
-    // }
+    // Adding the Traffic Control Module
+    TrafficControlHelper tch;
+    uint16_t handle = tch.SetRootQueueDisc ("ns3::PfifoFastQueueDisc");
+    tch.AddInternalQueues (handle, 3, "ns3::DropTailQueue", "MaxSize", StringValue("1000p"));
+    QueueDiscContainer qdiscs;
+    if(enable_qdisc)
+    {
+        qdiscs = tch.Install(device);
+	// TODO: Add sampling code.
+        // we enable the stats sampling client side only (we send traffic from client to server)
+        if (!serverMode)
+        {
+            Simulator::Schedule(Seconds(samplingPeriod), &StatsSampling, qdiscs.Get(0), device, samplingPeriod);
+        }
+    } 
 
     NS_LOG_INFO("Create IPv4 Interface");
     Ptr<Ipv4> ipv4 = node->GetObject<Ipv4>();

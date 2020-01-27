@@ -37,25 +37,35 @@ main (int argc, char *argv[])
   NS_LOG_INFO ("Dpdk Emulation Ping Example");
 
   std::string deviceName ("0000:00:11.0");
-  std::string macClient("78:0c:b8:d8:e1:95");
+  std::string macClient("08:00:27:59:7a:ad");
+
   // ping a real host connected back-to-back through the ethernet interfaces
-  std::string remote ("192.168.43.137");
+  std::string remote ("172.217.166.174");
+  std::string local ("192.168.0.3");
+  std::string localMaskVal ("255.255.255.0");
+  std::string gatewayIp("192.168.0.1");
 
   double samplingPeriod = 0.5; // s
   bool bql = false;
+  bool enable_qdisc = true;
 
   CommandLine cmd;
-  cmd.AddValue ("deviceName", "Device name", deviceName);
+  cmd.AddValue ("deviceName", "Device name, bus-slot format", deviceName);
+  cmd.AddValue ("macClient", "Mac address of client", macClient);
   cmd.AddValue ("remote", "Remote IP address (dotted decimal only please)", remote);
+  cmd.AddValue ("local","Local IP Address(dotted decimal only please)", local);
+  cmd.AddValue ("localMaskVal", "Local subnet mask. Dotted decimal", localMaskVal);
+  cmd.AddValue ("gatewayIp", "IP address of the default gateway", gatewayIp);
   cmd.AddValue ("bql", "Enable byte queue limits", bql);
+  cmd.AddValue ("enable_qdisc", "Enable Traffic Control layer. true or false value", enable_qdisc);
   cmd.Parse (argc, argv);
 
   Ipv4Address remoteIp (remote.c_str ());
   // the OS IP for the eth0 interfaces is 10.0.1.1, and we set the ns-3 IP for eth0 to 10.0.1.11
-  Ipv4Address localIp ("192.168.43.142");
+  Ipv4Address localIp (local.c_str());
   NS_ABORT_MSG_IF (localIp == "1.2.3.4", "You must change the local IP address before running this example");
 
-  Ipv4Mask localMask ("255.255.255.0");
+  Ipv4Mask localMask (localMaskVal.c_str());
 
   //
   // Since we are using a real piece of hardware we need to use the realtime
@@ -121,10 +131,6 @@ main (int argc, char *argv[])
   Ptr<NetDevice> device = devices.Get (0);
   device->SetAttribute ("Address", Mac48AddressValue (macClient.c_str ()));
 
-  //Ptr<Queue> queue = CreateObject<DropTailQueue> ();
-  //device->SetQueue (queue);
-  //node->AddDevice (device);
-
   //
   // Add a default internet stack to the node.  This gets us the ns-3 versions
   // of ARP, IPv4, ICMP, UDP and TCP.
@@ -132,6 +138,20 @@ main (int argc, char *argv[])
   NS_LOG_INFO ("Add Internet Stack");
   InternetStackHelper internetStackHelper;
   internetStackHelper.Install (node);
+
+  //
+  // Adding the Qdisc for Traffic Control 
+  //
+  if(enable_qdisc)
+  {
+    TrafficControlHelper tch;
+    tch.SetRootQueueDisc ("ns3::PfifoFastQueueDisc");
+    if(bql)
+    {
+      tch.SetQueueLimits("ns3::DynamicQueueLimits");
+    }
+    QueueDiscContainer qdiscs = tch.Install(devices);
+  }
 
   NS_LOG_INFO ("Create IPv4 Interface");
   Ptr<Ipv4> ipv4 = node->GetObject<Ipv4> ();
@@ -154,7 +174,7 @@ main (int argc, char *argv[])
   // the default gateway on your host and add it below, replacing the
   // "1.2.3.4" string.
   //
-  Ipv4Address gateway ("192.168.43.137");
+  Ipv4Address gateway (gatewayIp.c_str());
   NS_ABORT_MSG_IF (gateway == "1.2.3.4", "You must change the gateway IP address before running this example");
 
   Ipv4StaticRoutingHelper ipv4RoutingHelper;
