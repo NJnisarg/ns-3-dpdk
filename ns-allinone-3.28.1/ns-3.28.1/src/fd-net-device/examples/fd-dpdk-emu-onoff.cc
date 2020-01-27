@@ -48,10 +48,10 @@ StatsSampling(Ptr<QueueDisc> qdisc, Ptr<NetDevice> device, double samplingPeriod
 
     Simulator::Schedule(Seconds(samplingPeriod), &StatsSampling, qdisc, device, samplingPeriod);
     Ptr<DpdkNetDevice> d = DynamicCast<DpdkNetDevice> (device);
-    if(d)
-    {
-        d->GetL2Stats();
-    }
+    //if(d)
+    //{
+      //  d->GetL2Stats();
+    //}
 //    std::cout << qdisc->GetNPackets() << " packets in the traffic-control queue disc" << std::endl;
 //    std::cout << qdisc->GetStats() << std::endl;
 }
